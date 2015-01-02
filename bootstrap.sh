@@ -14,7 +14,7 @@ alias nuget="mono /usr/bin/NuGet.exe"' >> /home/vagrant/.bashrc
 
 # Vim
 mkdir -p /home/vagrant/.vim/autoload /home/vagrant/.vim/bundle
-cp -u /vagrant/.vimrc /home/vagrant
+ln -sf /vagrant/.vimrc /home/vagrant/.vimrc
 
 # Vim: pathogen
 curl -LSso /home/vagrant/.vim/autoload/pathogen.vim https://tpo.pe/pathogen.vim

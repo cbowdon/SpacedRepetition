@@ -7,6 +7,11 @@ echo "deb http://download.mono-project.com/repo/debian wheezy main" | tee /etc/a
 apt-get update
 apt-get install -y vim git mono-complete fsharp
 
+# NuGet
+curl -LSso /usr/bin/NuGet.exe http://build.nuget.org/NuGet.exe
+echo '
+alias nuget="mono /usr/bin/NuGet.exe"' >> /home/vagrant/.bashrc
+
 # Vim
 mkdir -p /home/vagrant/.vim/autoload /home/vagrant/.vim/bundle
 cp -u /vagrant/.vimrc /home/vagrant

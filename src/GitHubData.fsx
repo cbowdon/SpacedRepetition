@@ -13,11 +13,15 @@ type RepoMetaData = {
     LastTouched: DateTime
 }
 
-let data : Async<seq<RepoMetaData>> = async {
+let data : Async<RepoMetaData seq> = async {
     let! repos = Repos.AsyncGetSamples()
     return repos 
         |> Seq.filter (fun x -> x.Language.IsSome)
         |> Seq.map (fun x -> { Language = x.Language.Value; LastTouched = x.UpdatedAt })
+        |> Seq.sortBy (fun x -> DateTime.MaxValue - x.LastTouched)
+        |> Seq.fold (fun acc x ->
+            let exists = acc |> Seq.exists (fun x' -> x.Language = x'.Language)
+            if exists then acc else Seq.append acc [x]) Seq.empty
 }
 
 printfn "Language stats:"

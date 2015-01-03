@@ -1,3 +1,4 @@
+#!/usr/bin/fsharpi --exec
 #r "./FSharp.Data.2.1.1/lib/net40/FSharp.Data.dll"
 
 open System

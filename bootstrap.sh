@@ -7,6 +7,9 @@ echo "deb http://download.mono-project.com/repo/debian wheezy main" | tee /etc/a
 apt-get update
 apt-get install -y vim git mono-complete fsharp
 
+git config --global user.name "cbowdon"
+git config --global user.email "cbowdon@users.noreply.github.com"
+
 # NuGet
 curl -LSso /usr/bin/NuGet.exe http://build.nuget.org/NuGet.exe
 echo '
@@ -31,5 +34,6 @@ fi
 cd /home/vagrant/fsharpbinding/vim
 make install
 
-git config --global user.name "cbowdon"
-git config --global user.email "cbowdon@users.noreply.github.com"
+# Convenience
+echo '
+cd /vagrant' >> /home/vagrant/.bashrc

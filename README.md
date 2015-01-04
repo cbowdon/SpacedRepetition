@@ -11,3 +11,4 @@ I read a typically [insightful and extensively-research article from gwern](http
 ## Plan
 1. Explore a bit using F#.
 2. Figure out rest of plan.
+3. Looks like when I last updated a particular repo plus the main language of that repo is a terrible proxy for when I last used a language, since I (occasionally) diligently update READMEs for my projects or commit a minor fix. Going to focus on the following metric instead: commit rate.

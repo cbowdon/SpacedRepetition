@@ -3,6 +3,7 @@
 
 open System
 open System.IO
+open System.Text
 open FSharp.Data
 open FSharp.Data.HttpRequestHeaders
 
@@ -10,20 +11,34 @@ type Url = string
 type Query = (string * string) list
 
 [<Literal>]
-let username = "cbowdon"
-
-[<Literal>]
 let repoFile = "repos.json"
 
+[<Literal>]
+let langFile = "langs.json"
+
+[<Literal>] 
+let commitFile = "commits.json"
+
+[<Literal>]
+let username = "cbowdon"
+let password = Environment.GetCommandLineArgs() |> Seq.last
+
+let auth : string = 
+    sprintf "%s:%s" username password 
+        |> Encoding.ASCII.GetBytes 
+        |> Convert.ToBase64String 
+        |> sprintf "Basic %s"
+
 // GitHub API URLs
-let languageUrl user repo = sprintf "/repos/%s/%s/languages" user repo
-let commitsUrl user repo = sprintf "/repos/%s/%s/commits?author=%s" user repo user
 let reposUrl user = sprintf "/users/%s/repos" user
+let languageUrl user repo = sprintf "/repos/%s/%s/languages" user repo
+let commitsUrl user repo = sprintf "/repos/%s/%s/commits" user repo
 
 let queryGitHub (u:Url) (q:Query) : Async<string> = 
     let gitHubApiUrl = sprintf "https://api.github.com%s"
     let url = gitHubApiUrl u
     let h = [ Accept "application/vnd.github.v3+json"
+            ; Authorization auth
             ; UserAgent "cbowdon - F# script" ]
     Http.AsyncRequestString(url, httpMethod = "GET", query = q, headers = h)
 
@@ -33,13 +48,39 @@ let downloadRawReposData : Async<unit> = async {
 }
 
 // Run sync 
+// why am I even doing async?
 downloadRawReposData |> Async.RunSynchronously
 
 printfn "Finished downloading repo data"
 
-(*
+// Oh, dirty
 type Repos = JsonProvider<repoFile>
 
+let repoNames : Async<string seq> = async {
+    let! repos = Repos.AsyncGetSamples()
+    return repos |> Seq.map (fun x -> x.Name)
+}
+
+let concatJsons (jsons: string seq) : string = String.Join(",", jsons) |> sprintf "[ %s ]"
+let saveTo (filename: string) (data: string) : unit = File.WriteAllText(filename, data)
+
+let downloadLangData (repos: string seq) : Async<unit> = async {
+    let! langs = repos |> Seq.map (fun x -> queryGitHub (languageUrl username x) []) |> Async.Parallel
+    langs |> concatJsons |> saveTo langFile
+}
+
+let downloadCommitData (repos: string seq) : Async<unit> = async {
+    let! commits = repos |> Seq.map (fun x -> queryGitHub (commitsUrl username x) [ "author", username ]) |> Async.Parallel
+    commits |> concatJsons |> saveTo langFile
+}
+
+async {
+    let! repos = repoNames
+    return! downloadLangData repos
+    return! downloadCommitData repos
+} |> Async.RunSynchronously
+
+(*
 type RepoMetaData = {
     Language: string
     LastTouched: DateTime

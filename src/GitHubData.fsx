@@ -21,10 +21,13 @@ let commitFile = "commits.json"
 
 [<Literal>]
 let username = "cbowdon"
-let password = Environment.GetCommandLineArgs() |> Seq.last
+
+[<Literal>]
+let tokenFile = "token"
 
 let auth : string = 
-    sprintf "%s:%s" username password 
+    let token = File.ReadAllText(tokenFile).TrimEnd(Environment.NewLine.ToCharArray())
+    sprintf "%s:x-oauth-basic" token
         |> Encoding.ASCII.GetBytes 
         |> Convert.ToBase64String 
         |> sprintf "Basic %s"

@@ -25,11 +25,17 @@ curl -LSso /home/vagrant/.vim/autoload/pathogen.vim https://tpo.pe/pathogen.vim
 # Vim: syntastic
 if [[ ! -d /home/vagrant/.vim/bundle/syntastic ]]; then
     git clone https://github.com/scrooloose/syntastic.git /home/vagrant/.vim/bundle/syntastic
+else
+    cd /home/vagrant/.vim/bundle/syntastic
+    git pull
 fi
 
 # Vim: F# binding
 if [[ ! -d /home/vagrant/fsharpbinding ]]; then
     git clone https://github.com/fsharp/fsharpbinding.git /home/vagrant
+else
+    cd /home/vagrant/fsharpbinding
+    git pull
 fi
 cd /home/vagrant/fsharpbinding/vim
 make install

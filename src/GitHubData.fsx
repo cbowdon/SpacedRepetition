@@ -74,34 +74,11 @@ let downloadLangData (repos: string seq) : Async<unit> = async {
 
 let downloadCommitData (repos: string seq) : Async<unit> = async {
     let! commits = repos |> Seq.map (fun x -> queryGitHub (commitsUrl username x) [ "author", username ]) |> Async.Parallel
-    commits |> concatJsons |> saveTo langFile
+    commits |> concatJsons |> saveTo commitFile
 }
 
 async {
     let! repos = repoNames
-    return! downloadLangData repos
-    return! downloadCommitData repos
+    do! downloadLangData repos
+    do! downloadCommitData repos
 } |> Async.RunSynchronously
-
-(*
-type RepoMetaData = {
-    Language: string
-    LastTouched: DateTime
-}
-
-let lastTouchedStats : Async<RepoMetaData seq> = async {
-    let! repos = Repos.AsyncGetSamples()
-    return repos 
-        |> Seq.filter (fun x -> x.Language.IsSome)
-        |> Seq.map (fun x -> { Language = x.Language.Value; LastTouched = x.UpdatedAt })
-        |> Seq.sortBy (fun x -> DateTime.MaxValue - x.LastTouched)
-        |> Seq.fold (fun acc x ->
-            let exists = acc |> Seq.exists (fun x' -> x.Language = x'.Language)
-            if exists then acc else Seq.append acc [x]) Seq.empty
-}
-
-printfn "Language stats:"
-let result = lastTouchedStats |> Async.RunSynchronously
-for d in result do
-    printfn "%s - %s" d.Language (d.LastTouched.ToString("yyyy-MM-dd"))
-*)

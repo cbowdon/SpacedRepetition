@@ -8,143 +8,129 @@ open System.Text
 open FSharp.Data
 open FSharp.Data.HttpRequestHeaders
 
-[<Literal>]
-let repoSample = "repos_sample.json"
-
-[<Literal>]
-let langSample = "langs_sample.json"
-
-[<Literal>] 
-let commitSample = "commits_sample.json"
-
-// HACK: The json files _were_ downloaded by this script
-// but before the type providers were added
-type Repos = JsonProvider<repoSample>
-(*
-type Commits = JsonProvider<commitSample>
-
-type Languages = JsonProvider<langSample>
-*)
-
 module Json =
     open System.Runtime.Serialization.Json
 
-    let serialize<'a> (x: 'a) : string = 
+    let serialize<'a> (x: 'a) : string =
         let ser = new DataContractJsonSerializer(typedefof<'a>)
         use stream = new MemoryStream()
         ser.WriteObject(stream, x)
         stream.ToArray() |> Encoding.UTF8.GetString
 
-    let deserialize<'a> (x: string) : 'a = 
+    let deserialize<'a> (x: string) : 'a =
         let ser = new DataContractJsonSerializer(typedefof<'a>)
-        use stream = new MemoryStream()
+        let bytes = x |> Encoding.UTF8.GetBytes
+        use stream = new MemoryStream(bytes)
         ser.ReadObject(stream) :?> 'a
 
-module GitHubData =
+[<Literal>]
+let repoSample = "sample_repo.json"
 
-    open Json
+[<Literal>] 
+let commitSample = "sample_commit.json"
 
-    [<Literal>]
-    let username = "cbowdon"
+type Repos = JsonProvider<repoSample>
+type Commits = JsonProvider<commitSample>
 
-    [<Literal>]
-    let tokenFile = "token"
+[<Literal>]
+let username = "cbowdon"
 
-    let repoCache = "repo_cache.json"
-    let langCache = "lang_cache.json"
-    let commitCache = "commit_cache.json"
+[<Literal>]
+let tokenFile = "token"
 
-    type Url = string
+let repoCache = "cache_repo.json"
+let langCache = "cache_lang.json"
+let commitCache = "cache_commit.json"
 
-    type Query = (string * string) list
+type Url = string
 
-    let auth : string = 
-        let token = File.ReadAllText(tokenFile).TrimEnd(Environment.NewLine.ToCharArray())
-        sprintf "%s:x-oauth-basic" token
-            |> Encoding.ASCII.GetBytes 
-            |> Convert.ToBase64String 
-            |> sprintf "Basic %s"
+type Query = (string * string) list
 
-    // GitHub API URLs
-    let reposUrl user = sprintf "/users/%s/repos" user
-    let languageUrl user repo = sprintf "/repos/%s/%s/languages" user repo
-    let commitsUrl user repo = sprintf "/repos/%s/%s/commits" user repo
+let auth : string = 
+    let token = File.ReadAllText(tokenFile).TrimEnd(Environment.NewLine.ToCharArray())
+    sprintf "%s:x-oauth-basic" token
+        |> Encoding.ASCII.GetBytes 
+        |> Convert.ToBase64String 
+        |> sprintf "Basic %s"
 
-    let queryGitHub (u:Url) (q:Query) : Async<string> = 
-        let gitHubApiUrl = sprintf "https://api.github.com%s"
-        let url = gitHubApiUrl u
-        let h = [ Accept "application/vnd.github.v3+json"
-                ; Authorization auth
-                ; UserAgent "cbowdon - F# script" ]
-        Http.AsyncRequestString(url, httpMethod = "GET", query = q, headers = h)
+// GitHub API URLs
+let reposUrl user = sprintf "/users/%s/repos" user
+let languageUrl user repo = sprintf "/repos/%s/%s/languages" user repo
+let commitsUrl user repo = sprintf "/repos/%s/%s/commits" user repo
 
-    let concatJsons (jsons: string seq) : string = String.Join(",", jsons) |> sprintf "[ %s ]"
+let queryGitHub (u:Url) (q:Query) : Async<string> = 
+    let gitHubApiUrl = sprintf "https://api.github.com%s"
+    let url = gitHubApiUrl u
+    let h = [ Accept "application/vnd.github.v3+json"
+            ; Authorization auth
+            ; UserAgent "cbowdon - F# script" ]
+    Http.AsyncRequestString(url, httpMethod = "GET", query = q, headers = h)
 
-    let saveTo (filename: string) (data: string) : unit = File.WriteAllText(filename, data)
+let concatJsons (jsons: string seq) : string = String.Join(",", jsons) |> sprintf "[ %s ]"
 
-    let arrayHead (a:'T[]) : 'T = 
-        match List.ofArray a with
-        | x::_  -> x
-        | _     -> failwith "Empty array" // this is bad, shouldn't use partial function, let alone write one
+let saveTo (filename: string) (data: string) : unit = File.WriteAllText(filename, data)
 
-    let downloadReposData : Async<unit> = async { 
-        let! repos = queryGitHub (reposUrl username) []
-        do repos |> saveTo repoSample
-        do repos |> saveTo repoCache
-    }
+open Json
 
-    let downloadLangData (repoNames: string seq) : Async<unit> = async {
-        let! langs = repoNames |> Seq.map (fun x -> queryGitHub (languageUrl username x) []) |> Async.Parallel
-        do langs |> arrayHead |> saveTo langSample
-        Seq.zip repoNames langs 
-        |> Map.ofSeq
-        |> serialize 
-        |> saveTo langCache        
-    }
+let cache (cacheFile: string) (func: 'a) : 'a = 
+    if File.Exists(cacheFile)
+    then
+        let res = cacheFile |> File.ReadAllText
+        res |> printfn "%s"
+        cacheFile |> File.ReadAllText |> deserialize
+    else
+        let result = func 
+        result |> serialize |> saveTo cacheFile
+        result
 
-    let downloadCommitData (repoNames: string seq) : Async<unit> = async {
-        let! commits = repoNames |> Seq.map (fun x -> queryGitHub (commitsUrl username x) [ "author", username ]) |> Async.Parallel
-        do commits |> arrayHead |> saveTo commitSample
-        Seq.zip repoNames commits
-        |> Map.ofSeq
-        |> serialize 
-        |> saveTo commitCache
-    }
-
-open GitHubData
-
-async {
-    let! repos = Repos.AsyncGetSamples()
-    let names = repos |> Seq.map (fun x -> x.Name)
-    do! downloadLangData names
-    do! downloadCommitData names
-} |> Async.RunSynchronously
-
-(*
-let repos = Repos.GetSamples()
-let langs = Languages.GetSamples()
-let commits = Commits.GetSamples()
-
-printfn "Repos: %i" repos.Length
-printfn "Langs: %i" langs.Length
-printfn "Commits: %i" commits.Length
-
-type Repository = { Name: string }
-
-type Change = {
-    Filename: string
-    Additions: int
-    Deletions: int
+let downloadReposData : Async<Repos.Root[]> = async { 
+    let! repos = queryGitHub (reposUrl username) []
+    let result = repos |> Repos.Parse
+    return result
 }
 
-type Commit = {
-    Repository: Repository
-    Date: DateTime
-    //Changes: Change seq // TODO
+let getRepos : Async<Repos.Root[]> = downloadReposData |> cache repoCache
+
+let downloadLangData (repoNames: string seq) : Async<Map<string,string>> = async {
+    let! langs = 
+        repoNames 
+        |> Seq.map (fun x -> queryGitHub (languageUrl username x) []) 
+        |> Async.Parallel
+    // TODO parse JSON into dict
+    let result = 
+        langs
+        |> Seq.zip repoNames 
+        |> Map.ofSeq
+    return result
 }
 
-for c in commits do
-    for c' in c do
-        c'.Commit.Author.Date.ToString("yyyy-MM-dd") |> printfn "%s" 
+let getLangs : Async<Map<string,string>> = async {
+    let! repos = getRepos 
+    return! repos
+    |> Seq.map (fun r -> r.Name)
+    |> downloadLangData 
+    |> cache langCache
+}
 
-*)
+let downloadCommitData (repoNames: string seq) : Async<Map<string,Commits.Root[]>> = async {
+    let! commits = 
+        repoNames 
+        |> Seq.map (fun x -> queryGitHub (commitsUrl username x) [ "author", username ]) 
+        |> Async.Parallel
+    let result = 
+        commits 
+        |> Seq.map Commits.Parse 
+        |> Seq.zip repoNames 
+        |> Map.ofSeq
+    return result
+}
+
+let getCommits : Async<Map<string,Commits.Root[]>> = async {
+    let! repos = getRepos
+    return! repos
+    |> Seq.map (fun r -> r.Name)
+    |> downloadCommitData
+    |> cache commitCache
+}
+
+getCommits |> Async.RunSynchronously

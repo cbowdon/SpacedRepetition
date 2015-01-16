@@ -27,6 +27,7 @@ let commitSample = "sample_commit.json"
 type Url = string
 type Query = (string * string) list
 type LangStats = Map<string,int>
+type History = seq<DateTime * int>
 
 type Repos = JsonProvider<repoSample>
 type Commits = JsonProvider<commitSample>
@@ -127,9 +128,23 @@ let getCommits : Async<Map<string,Commits.Root[]>> = async {
     return data |> Map.map (fun k v -> Commits.Parse v)
 }
 
+let history : Commits.Root[] -> History = Seq.countBy (fun c -> c.Commit.Author.Date.Date) 
+
+let histogram: History -> seq<string> =
+    Seq.map (fun dc -> 
+        let d, c = dc
+        let d' = d.ToString("yyyy-MM-dd")
+        let c' = String.replicate c "="
+        sprintf "%s\t%s" d' c')
+
 Async.RunSynchronously <| async {
     let! repos = getRepos
     let! langs = getLangs
     let! commits = getCommits
-    failwith "TODO"
-} 
+    let histories = commits |> Map.map (fun k v -> history v)
+
+    histories 
+    |> Map.iter (fun name hist ->
+        printfn "%s" name
+        hist |> histogram |> Seq.iter (printfn "%s"))
+}

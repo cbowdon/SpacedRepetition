@@ -1,20 +1,32 @@
 #!/usr/bin/fsharpi --exec
-#r "System.Runtime.Serialization.dll"
-#r "./FSharp.Data.2.1.1/lib/net40/FSharp.Data.dll"
-#r "./FsPickler.1.0.6/lib/net45/FsPickler.dll"
+#I "./FSharp.Data.2.1.1/lib/net40/"
+#I "./Newtonsoft.Json.6.0.5/lib/net45/"
+#I "./FsPickler.1.0.6/lib/net45/"
+#I "./FsPickler.Json.1.0.6/lib/net45/"
+
+#r "FSharp.Data.dll"
+#r "Newtonsoft.Json.dll"
+#r "FsPickler.dll"
+#r "FsPickler.Json.dll"
 
 open System
 open System.IO
 open System.Text
 open FSharp.Data
 open FSharp.Data.HttpRequestHeaders
+open FSharp.Data.JsonExtensions
 open Nessos.FsPickler
+open Nessos.FsPickler.Json
 
 [<Literal>]
 let repoSample = "sample_repo.json"
 
 [<Literal>] 
 let commitSample = "sample_commit.json"
+
+type Url = string
+type Query = (string * string) list
+type LangStats = Map<string,int>
 
 type Repos = JsonProvider<repoSample>
 type Commits = JsonProvider<commitSample>
@@ -25,13 +37,9 @@ let username = "cbowdon"
 [<Literal>]
 let tokenFile = "token"
 
-let repoCache = "cache_repo.pickle"
-let langCache = "cache_lang.pickle"
-let commitCache = "cache_commit.pickle"
-
-type Url = string
-
-type Query = (string * string) list
+let repoCache = "cache_repo.json"
+let langCache = "cache_lang.json"
+let commitCache = "cache_commit.json"
 
 let auth : string = 
     let token = File.ReadAllText(tokenFile).TrimEnd(Environment.NewLine.ToCharArray())
@@ -54,44 +62,47 @@ let queryGitHub (u:Url) (q:Query) : Async<string> =
     Http.AsyncRequestString(url, httpMethod = "GET", query = q, headers = h)
 
 // TODO modules for cleanliness
-let saveTo (filename: string) (data: byte[]) : unit = File.WriteAllBytes(filename, data)
+let saveTo (filename: string) (data: string) : unit = File.WriteAllText(filename, data)
 
 let cache (cacheFile: string) (func: unit -> Async<'a>) : Async<'a> = async {
-    let binary = FsPickler.CreateBinary()
+    let json = FsPickler.CreateJson()
     if File.Exists(cacheFile)
     then
         let res = cacheFile |> File.ReadAllText
-        return cacheFile |> File.ReadAllBytes |> binary.UnPickle
+        return cacheFile |> File.ReadAllText |> json.UnPickleOfString
     else
         let! result = func() 
-        result |> binary.Pickle |> saveTo cacheFile
+        result |> json.PickleToString |> saveTo cacheFile
         return result
 }
 
-// It turns out I miss fmap
-let asyncFmap (f: 'a -> 'b) (a: Async<'a>) : Async<'b> = async { let! a' = a in return f a' }
-
 let downloadReposData : Async<string> = queryGitHub (reposUrl username) []
 
-let getRepos : Async<Repos.Root[]> = 
-    (fun () -> downloadReposData) 
-    |> cache repoCache
-    |> asyncFmap Repos.Parse
+let getRepos : Async<Repos.Root[]> = async {
+    let! repos = cache repoCache (fun () -> downloadReposData)
+    return Repos.Parse repos
+}
 
-let downloadLangData (repoNames: string seq) : Async<Map<string,string>> = async {
+// GitHub lang stats are given as Map<string,int>
+// Irregular structure defies type providers
+let parseLangMap : string -> LangStats =
+    JsonValue.Parse
+    >> (fun l -> l.Properties)
+    >> Seq.map (fun pair -> let k, v = pair in (k, v.AsInteger()))
+    >> Map.ofSeq
+
+let downloadLangData (repoNames: string seq) : Async<Map<string,LangStats>> = async {
     let! langs = 
         repoNames 
         |> Seq.map (fun x -> queryGitHub (languageUrl username x) []) 
         |> Async.Parallel
-    // TODO parse JSON into dict
-    let result = 
-        langs
+    return langs 
+        |> Seq.map parseLangMap
         |> Seq.zip repoNames 
         |> Map.ofSeq
-    return result
 }
 
-let getLangs : Async<Map<string,string>> = async {
+let getLangs : Async<Map<string,LangStats>> = async {
     let! repos = getRepos 
     return! cache langCache (fun () ->
         repos
@@ -104,17 +115,21 @@ let downloadCommitData (repoNames: string seq) : Async<Map<string,string>> = asy
         repoNames 
         |> Seq.map (fun x -> queryGitHub (commitsUrl username x) [ "author", username ]) 
         |> Async.Parallel
-    let result = 
-        commits 
+    return commits
         |> Seq.zip repoNames 
         |> Map.ofSeq
-    return result
 }
 
 let getCommits : Async<Map<string,Commits.Root[]>> = async {
-    let! repos = getRepos |> asyncFmap (Seq.map (fun r -> r.Name))
-    let! data = cache commitCache (fun () -> downloadCommitData repos) 
+    let! repos = getRepos
+    let names = repos |> Seq.map (fun r -> r.Name)
+    let! data = cache commitCache (fun () -> downloadCommitData names) 
     return data |> Map.map (fun k v -> Commits.Parse v)
 }
 
-getCommits |> Async.RunSynchronously
+Async.RunSynchronously <| async {
+    let! repos = getRepos
+    let! langs = getLangs
+    let! commits = getCommits
+    failwith "TODO"
+} 

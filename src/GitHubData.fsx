@@ -128,7 +128,16 @@ let getCommits : Async<Map<string,Commits.Root[]>> = async {
     return data |> Map.map (fun k v -> Commits.Parse v)
 }
 
-let history : Commits.Root[] -> History = Seq.countBy (fun c -> c.Commit.Author.Date.Date) 
+let notContainingDay (d:DateTime) : History -> bool = Seq.exists (fun (d', _) -> d' = d) >> not
+
+let history (commits: Commits.Root[]) : History = 
+    let hist = commits |> Seq.countBy (fun c -> c.Commit.Author.Date.Date) 
+    hist
+    |> Seq.filter (fun (d, c) -> 
+        // Discount one off changes
+        c <= 1 
+        && notContainingDay (d.AddDays(1.0)) hist
+        && notContainingDay (d.AddDays(-1.0)) hist)
 
 let histogram: History -> seq<string> =
     Seq.map (fun dc -> 
@@ -136,6 +145,16 @@ let histogram: History -> seq<string> =
         let d' = d.ToString("yyyy-MM-dd")
         let c' = String.replicate c "="
         sprintf "%s\t%s" d' c')
+
+let langHistory (ls: LangStats) (h: History) : Map<string,History> = 
+    let total = ls |> Map.fold (fun s k v -> s + float v) 0.0
+    let proportions = ls |> Map.map (fun k v -> (float v) / total)
+    proportions 
+    |> Map.map (fun k v -> 
+        h |> Seq.map (fun dc -> 
+            let d, c = dc 
+            let c' = int (v * float c)
+            d, c'))
 
 Async.RunSynchronously <| async {
     let! repos = getRepos

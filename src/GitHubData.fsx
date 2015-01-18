@@ -18,152 +18,169 @@ open FSharp.Data.JsonExtensions
 open Nessos.FsPickler
 open Nessos.FsPickler.Json
 
-[<Literal>]
-let repoSample = "sample_repo.json"
+module GitHub =
 
-[<Literal>] 
-let commitSample = "sample_commit.json"
+    [<Literal>]
+    let repoSample = "sample_repo.json"
 
-type Url = string
-type Query = (string * string) list
-type LangStats = Map<string,int>
-type History = seq<DateTime * int>
+    [<Literal>] 
+    let commitSample = "sample_commit.json"
 
-type Repos = JsonProvider<repoSample>
-type Commits = JsonProvider<commitSample>
+    [<Literal>]
+    let username = "cbowdon"
 
-[<Literal>]
-let username = "cbowdon"
+    [<Literal>]
+    let tokenFile = "token"
 
-[<Literal>]
-let tokenFile = "token"
+    let repoCache = "cache_repo.json"
+    let langCache = "cache_lang.json"
+    let commitCache = "cache_commit.json"
 
-let repoCache = "cache_repo.json"
-let langCache = "cache_lang.json"
-let commitCache = "cache_commit.json"
+    type Url = string
+    type Query = (string * string) list
 
-let auth : string = 
-    let token = File.ReadAllText(tokenFile).TrimEnd(Environment.NewLine.ToCharArray())
-    sprintf "%s:x-oauth-basic" token
-        |> Encoding.ASCII.GetBytes 
-        |> Convert.ToBase64String 
-        |> sprintf "Basic %s"
+    type Repos = JsonProvider<repoSample>
+    type Commits = JsonProvider<commitSample>
 
-// GitHub API URLs
-let reposUrl user = sprintf "/users/%s/repos" user
-let languageUrl user repo = sprintf "/repos/%s/%s/languages" user repo
-let commitsUrl user repo = sprintf "/repos/%s/%s/commits" user repo
+    type LangStats = Map<string,float>
+    type CommitHistory = Map<DateTime,Commits.Root seq>
+    type Language = string
 
-let queryGitHub (u:Url) (q:Query) : Async<string> = 
-    let gitHubApiUrl = sprintf "https://api.github.com%s"
-    let url = gitHubApiUrl u
-    let h = [ Accept "application/vnd.github.v3+json"
-            ; Authorization auth
-            ; UserAgent "cbowdon - F# script" ]
-    Http.AsyncRequestString(url, httpMethod = "GET", query = q, headers = h)
+    let auth : string = 
+        let token = File.ReadAllText(tokenFile).TrimEnd(Environment.NewLine.ToCharArray())
+        sprintf "%s:x-oauth-basic" token
+            |> Encoding.ASCII.GetBytes 
+            |> Convert.ToBase64String 
+            |> sprintf "Basic %s"
 
-// TODO modules for cleanliness
-let saveTo (filename: string) (data: string) : unit = File.WriteAllText(filename, data)
+    // GitHub API URLs
+    let reposUrl user = sprintf "/users/%s/repos" user
+    let languageUrl user repo = sprintf "/repos/%s/%s/languages" user repo
+    let commitsUrl user repo = sprintf "/repos/%s/%s/commits" user repo
 
-let cache (cacheFile: string) (func: unit -> Async<'a>) : Async<'a> = async {
-    let json = FsPickler.CreateJson()
-    if File.Exists(cacheFile)
-    then
-        let res = cacheFile |> File.ReadAllText
-        return cacheFile |> File.ReadAllText |> json.UnPickleOfString
-    else
-        let! result = func() 
-        result |> json.PickleToString |> saveTo cacheFile
-        return result
-}
+    let queryGitHub (u:Url) (q:Query) : Async<string> = 
+        let gitHubApiUrl = sprintf "https://api.github.com%s"
+        let url = gitHubApiUrl u
+        let h = [ Accept "application/vnd.github.v3+json"
+                ; Authorization auth
+                ; UserAgent "cbowdon - F# script" ]
+        Http.AsyncRequestString(url, httpMethod = "GET", query = q, headers = h)
 
-let downloadReposData : Async<string> = queryGitHub (reposUrl username) []
+    // TODO modules for cleanliness
+    let saveTo (filename: string) (data: string) : unit = File.WriteAllText(filename, data)
 
-let getRepos : Async<Repos.Root[]> = async {
-    let! repos = cache repoCache (fun () -> downloadReposData)
-    return Repos.Parse repos
-}
+    let cache (cacheFile: string) (func: unit -> Async<'a>) : Async<'a> = async {
+        let json = FsPickler.CreateJson()
+        if File.Exists(cacheFile)
+        then
+            let res = cacheFile |> File.ReadAllText
+            return cacheFile |> File.ReadAllText |> json.UnPickleOfString
+        else
+            let! result = func() 
+            result |> json.PickleToString |> saveTo cacheFile
+            return result
+    }
 
-// GitHub lang stats are given as Map<string,int>
-// Irregular structure defies type providers
-let parseLangMap : string -> LangStats =
-    JsonValue.Parse
-    >> (fun l -> l.Properties)
-    >> Seq.map (fun pair -> let k, v = pair in (k, v.AsInteger()))
-    >> Map.ofSeq
+    let downloadReposData : Async<string> = queryGitHub (reposUrl username) []
 
-let downloadLangData (repoNames: string seq) : Async<Map<string,LangStats>> = async {
-    let! langs = 
-        repoNames 
-        |> Seq.map (fun x -> queryGitHub (languageUrl username x) []) 
-        |> Async.Parallel
-    return langs 
-        |> Seq.map parseLangMap
-        |> Seq.zip repoNames 
+    let getRepos : Async<Repos.Root[]> = async {
+        let! repos = cache repoCache (fun () -> downloadReposData)
+        return Repos.Parse repos
+    }
+
+    // GitHub lang stats are given as Map<string,int>
+    // Irregular structure defies type provider
+    let parseLangMap (json: string) : LangStats =
+        let pairs = 
+            json
+            |> JsonValue.Parse
+            |> (fun l -> l.Properties)
+            |> Seq.map (fun pair -> let k, v = pair in (k, v.AsFloat()))
+        let total = pairs |> Seq.fold (fun sum (_, v) -> sum + v) 0.0
+        pairs 
+        |> Seq.map (fun (k, v) -> (k, v / total))
         |> Map.ofSeq
-}
 
-let getLangs : Async<Map<string,LangStats>> = async {
-    let! repos = getRepos 
-    return! cache langCache (fun () ->
-        repos
-        |> Seq.map (fun r -> r.Name)
-        |> downloadLangData )
-}
+    let downloadLangData (repoNames: string seq) : Async<Map<string,LangStats>> = async {
+        let! langs = 
+            repoNames 
+            |> Seq.map (fun x -> queryGitHub (languageUrl username x) []) 
+            |> Async.Parallel
+        return langs 
+            |> Seq.map parseLangMap
+            |> Seq.zip repoNames 
+            |> Map.ofSeq
+    }
 
-let downloadCommitData (repoNames: string seq) : Async<Map<string,string>> = async {
-    let! commits = 
-        repoNames 
-        |> Seq.map (fun x -> queryGitHub (commitsUrl username x) [ "author", username ]) 
-        |> Async.Parallel
-    return commits
-        |> Seq.zip repoNames 
-        |> Map.ofSeq
-}
+    let getLangs : Async<Map<string,LangStats>> = async {
+        let! repos = getRepos 
+        return! cache langCache (fun () ->
+            repos
+            |> Seq.map (fun r -> r.Name)
+            |> downloadLangData )
+    }
 
-let getCommits : Async<Map<string,Commits.Root[]>> = async {
-    let! repos = getRepos
-    let names = repos |> Seq.map (fun r -> r.Name)
-    let! data = cache commitCache (fun () -> downloadCommitData names) 
-    return data |> Map.map (fun k v -> Commits.Parse v)
-}
+    let downloadCommitData (repoNames: string seq) : Async<Map<string,string>> = async {
+        let! commits = 
+            repoNames 
+            |> Seq.map (fun x -> queryGitHub (commitsUrl username x) [ "author", username ]) 
+            |> Async.Parallel
+        return commits
+            |> Seq.zip repoNames 
+            |> Map.ofSeq
+    }
 
-let notContainingDay (d:DateTime) : History -> bool = Seq.exists (fun (d', _) -> d' = d) >> not
+    let getCommits : Async<Map<string,Commits.Root[]>> = async {
+        let! repos = getRepos
+        let names = repos |> Seq.map (fun r -> r.Name)
+        let! data = cache commitCache (fun () -> downloadCommitData names) 
+        return data |> Map.map (fun k v -> Commits.Parse v)
+    }
 
-let history (commits: Commits.Root[]) : History = 
-    let hist = commits |> Seq.countBy (fun c -> c.Commit.Author.Date.Date) 
-    hist
-    |> Seq.filter (fun (d, c) -> 
-        // Discount one off changes
-        c <= 1 
-        && notContainingDay (d.AddDays(1.0)) hist
-        && notContainingDay (d.AddDays(-1.0)) hist)
+let history (commits: GitHub.Commits.Root[]) : GitHub.CommitHistory = 
+    commits 
+    |> Seq.groupBy (fun c -> c.Commit.Author.Date.Date) 
+    |> Map.ofSeq
 
-let histogram: History -> seq<string> =
-    Seq.map (fun dc -> 
-        let d, c = dc
-        let d' = d.ToString("yyyy-MM-dd")
-        let c' = String.replicate c "="
-        sprintf "%s\t%s" d' c')
+let lastNonTrivialWork (history : GitHub.CommitHistory) : DateTime = 
 
-let langHistory (ls: LangStats) (h: History) : Map<string,History> = 
-    let total = ls |> Map.fold (fun s k v -> s + float v) 0.0
-    let proportions = ls |> Map.map (fun k v -> (float v) / total)
-    proportions 
-    |> Map.map (fun k v -> 
-        h |> Seq.map (fun dc -> 
-            let d, c = dc 
-            let c' = int (v * float c)
-            d, c'))
+    let isTrivial (k: DateTime) (v: seq<'a>) : bool =
+        let dayBefore, dayAfter = k.AddDays(-1.0), k.AddDays(1.0)
+        Seq.length v <= 1
+        && history |> Map.containsKey dayBefore |> not
+        && history |> Map.containsKey dayAfter |> not
+
+    let rec firstNonTrivial lst = 
+        match lst with
+        | (k,v)::rest   -> if isTrivial k v then firstNonTrivial rest else Some k
+        | []            -> None
+
+    let sorted = 
+        history
+            |> Map.toList
+            |> List.sortBy (fun (k,_) -> k)
+            |> List.rev
+
+    match firstNonTrivial sorted with
+    | Some d    -> d
+    | None      -> fst (Seq.head sorted) 
+    // will error if empty history, as it should
+
+let format (d:DateTime) : string = d.ToString("yyyy-MM-dd")
 
 Async.RunSynchronously <| async {
-    let! repos = getRepos
-    let! langs = getLangs
-    let! commits = getCommits
-    let histories = commits |> Map.map (fun k v -> history v)
+    let! repos = GitHub.getRepos
+    let! langs = GitHub.getLangs
+    let! commits = GitHub.getCommits
+    let repoHistories = commits |> Map.map (fun k v -> history v)
 
-    histories 
-    |> Map.iter (fun name hist ->
-        printfn "%s" name
-        hist |> histogram |> Seq.iter (printfn "%s"))
+    // TODO mapping from the above to Map<Language,CommitHistory>
+    
+    // Test with Haskell
+    // Last time non-trivial work with language
+    let lastHsDay = lastNonTrivialWork (failwith "unfinished")
+    format lastHsDay |> printfn "Haskell: %s" 
+
+    // Total activity with language
+    // Number of groups of activity
 }

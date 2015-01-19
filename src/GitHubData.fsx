@@ -174,6 +174,9 @@ let reposForLang (lang: string) (langStats: Map<string,GitHub.LangStats>): seq<s
         |> Map.toSeq 
         |> Seq.map fst
 
+let totalCommits (histories: seq<GitHub.CommitHistory>) : int =  
+    histories |> Seq.fold (fun count hist -> count + Seq.length hist) 0
+
 Async.RunSynchronously <| async {
     let! repos = GitHub.getRepos
     let! langs = GitHub.getLangs
@@ -194,5 +197,9 @@ Async.RunSynchronously <| async {
     format lastHsDay |> printfn "Last time worked on Haskell: %s" 
 
     // Total activity with language
+    let totalHsCommits = hsHistories |> totalCommits
+    // TODO turns out my two largest Haskell repos aren't included here - bad query?
+    totalHsCommits |> printfn "Total commits for Haskell: %i"
+    
     // Number of groups of activity
 }

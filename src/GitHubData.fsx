@@ -177,11 +177,42 @@ let reposForLang (lang: string) (langStats: Map<string,GitHub.LangStats>): seq<s
 let totalCommits (histories: seq<GitHub.CommitHistory>) : int =  
     histories |> Seq.fold (fun count hist -> count + Seq.length hist) 0
 
+module Map =
+    let keys (map: Map<'a,_>) = map |> Map.toSeq |> Seq.map (fun (k, _) -> k)
+    let values (map: Map<_,'b>) = map |> Map.toSeq |> Seq.map (fun (_, v) -> v)
+
+module Seq =
+    let flatten (seqs: seq<seq<_>>) = seqs |> Seq.fold Seq.append Seq.empty
+
+// readable sigs
+type Language = string
+type RepoName = string
+
 Async.RunSynchronously <| async {
     let! repos = GitHub.getRepos
     let! langs = GitHub.getLangs
     let! commits = GitHub.getCommits
     let repoHistories = commits |> Map.map (fun _ v -> history v)
+
+    let uniqueLangs = 
+        langs 
+        |> Map.values
+        |> Seq.map Map.keys
+        |> Seq.flatten
+        |> Seq.distinct
+        |> Seq.sort
+
+    uniqueLangs |> Seq.iter (printfn "Lang: %s")
+
+    let historyForRepo (repo: string) : RepoName * GitHub.CommitHistory = (repo, Map.find repo repoHistories)
+
+    let reposPerLang = uniqueLangs |> Seq.map (fun lang -> (lang, reposForLang lang langs))
+    
+    let langsToRepos : Map<Language, Map<RepoName, GitHub.CommitHistory>> = 
+        reposPerLang
+        |> Seq.map (fun (l, rs) -> (l, rs |> Seq.map historyForRepo))
+        |> Seq.map (fun (l, rs) -> (l, Map.ofSeq rs))
+        |> Map.ofSeq
 
     // Test with Haskell
     let hsRepos = langs |> reposForLang "Haskell"
@@ -202,4 +233,5 @@ Async.RunSynchronously <| async {
     totalHsCommits |> printfn "Total commits for Haskell: %i"
     
     // Number of groups of activity
+    // TODO
 }

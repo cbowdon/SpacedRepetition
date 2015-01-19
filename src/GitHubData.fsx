@@ -168,18 +168,30 @@ let lastNonTrivialWork (history : GitHub.CommitHistory) : DateTime =
 
 let format (d:DateTime) : string = d.ToString("yyyy-MM-dd")
 
+let reposForLang (lang: string) (langStats: Map<string,GitHub.LangStats>): seq<string> =
+        langStats
+        |> Map.filter (fun _ v -> Map.containsKey lang v) 
+        |> Map.toSeq 
+        |> Seq.map fst
+
 Async.RunSynchronously <| async {
     let! repos = GitHub.getRepos
     let! langs = GitHub.getLangs
     let! commits = GitHub.getCommits
-    let repoHistories = commits |> Map.map (fun k v -> history v)
+    let repoHistories = commits |> Map.map (fun _ v -> history v)
 
-    // TODO mapping from the above to Map<Language,CommitHistory>
-    
     // Test with Haskell
+    let hsRepos = langs |> reposForLang "Haskell"
+
+    let hsHistories = hsRepos |> Seq.map (fun repo -> Map.find repo repoHistories)
+
     // Last time non-trivial work with language
-    let lastHsDay = lastNonTrivialWork (failwith "unfinished")
-    format lastHsDay |> printfn "Haskell: %s" 
+    let lastHsDay = 
+        hsHistories 
+        |> Seq.map lastNonTrivialWork 
+        |> Seq.max
+
+    format lastHsDay |> printfn "Last time worked on Haskell: %s" 
 
     // Total activity with language
     // Number of groups of activity

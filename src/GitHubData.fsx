@@ -194,7 +194,7 @@ Async.RunSynchronously <| async {
     let! commits = GitHub.getCommits
     let repoHistories = commits |> Map.map (fun _ v -> history v)
 
-    let uniqueLangs = 
+    let uniqueLangs : seq<string> = 
         langs 
         |> Map.values
         |> Seq.map Map.keys
@@ -202,11 +202,13 @@ Async.RunSynchronously <| async {
         |> Seq.distinct
         |> Seq.sort
 
-    uniqueLangs |> Seq.iter (printfn "Lang: %s")
+    //uniqueLangs |> Seq.iter (printfn "Lang: %s")
 
-    let historyForRepo (repo: string) : RepoName * GitHub.CommitHistory = (repo, Map.find repo repoHistories)
+    let historyForRepo (repo: RepoName) : RepoName * GitHub.CommitHistory = 
+        (repo, Map.find repo repoHistories)
 
-    let reposPerLang = uniqueLangs |> Seq.map (fun lang -> (lang, reposForLang lang langs))
+    let reposPerLang : seq<Language * seq<RepoName>> = 
+        uniqueLangs |> Seq.map (fun lang -> (lang, reposForLang lang langs))
     
     let langsToRepos : Map<Language, Map<RepoName, GitHub.CommitHistory>> = 
         reposPerLang
@@ -214,24 +216,21 @@ Async.RunSynchronously <| async {
         |> Seq.map (fun (l, rs) -> (l, Map.ofSeq rs))
         |> Map.ofSeq
 
-    // Test with Haskell
-    let hsRepos = langs |> reposForLang "Haskell"
-
-    let hsHistories = hsRepos |> Seq.map (fun repo -> Map.find repo repoHistories)
-
+    let langsToHistories : Map<Language, seq<GitHub.CommitHistory>> =
+        langsToRepos |> Map.map (fun _ v -> Map.values v)
+    
     // Last time non-trivial work with language
-    let lastHsDay = 
-        hsHistories 
-        |> Seq.map lastNonTrivialWork 
-        |> Seq.max
+    let lastDays : Map<Language, DateTime> =
+        langsToHistories |> Map.map (fun _ v -> v |> Seq.map lastNonTrivialWork |> Seq.max)
 
-    format lastHsDay |> printfn "Last time worked on Haskell: %s" 
+    lastDays |> Map.iter (fun k v -> format v |> printfn "%s\tlast used on %s" k)
 
     // Total activity with language
-    let totalHsCommits = hsHistories |> totalCommits
-    // TODO turns out my two largest Haskell repos aren't included here - bad query?
-    totalHsCommits |> printfn "Total commits for Haskell: %i"
-    
+    let commitTotals : Map<Language, int> =
+        langsToHistories |> Map.map (fun _ v -> totalCommits v)
+
+    commitTotals |> Map.iter (fun k v -> printfn "%s\ttotal commits: %i" k v)
+
     // Number of groups of activity
     // TODO
 }

@@ -22,3 +22,21 @@ From that it should be easy to calculate the following metrics:
 * Last non-trivial activity per language
 * Total activity per language
 * Number of groups of activity per language (roughly how many times visited)
+
+## Current status
+80% done. Core functionality almost complete, haven't attempted the nice-to-haves. On hold whil I work on things that are a bit more useful to me in the daytime.
+
+Implemented:
+    * downloading and caching GitHub data
+    * calculating last non-trivial activity for a language
+    * calculating total activity for a language
+
+Not implemented:
+    * Number of groups of activity per language
+    * Automated reminders
+    * Pretty visualizations
+
+Issues:
+    * I suspect the GitHub queries aren't returning _all_ repos, but don't know why
+    * Commit counts not adjusted for relative proportions of mixed-language repos
+    * Edge case of where I've committed (e.g.) VimL to a mostly F# repo not considered
